@@ -1,4 +1,5 @@
-import checkHealth = require("./health-checker");
+import { AlertManager } from "./alert/alert-manager";
+import { checkHealth } from "./monitor/health-checker";
 
 const TARGET_URL = "http://nginx/health";
 
@@ -11,7 +12,7 @@ const RECOVERY_THRESHOLD = 2;
 let consecutiveFailures = 0;
 let consecutiveSuccesses = 0;
 
-let isDown = false;
+const alertManager = new AlertManager("nginx");
 
 async function monitor() {
 	const result = await checkHealth(TARGET_URL, TIMEOUT_MS);
@@ -24,10 +25,12 @@ async function monitor() {
 
 		console.log(`[${timestamp}] UP | status=${result.statusCode} latency=${result.latencyMs}ms`);
 
-		if (isDown && consecutiveSuccesses >= RECOVERY_THRESHOLD) {
-			isDown = false;
+		if (consecutiveSuccesses >= RECOVERY_THRESHOLD) {
+			const event = alertManager.handleRecovery();
 
-			console.log(`[${timestamp}] RECOVERED | service is healthy again`);
+			if (event) {
+				console.log("RECOVERY ALERT:", event);
+			}
 
 			consecutiveSuccesses = 0;
 		}
@@ -40,10 +43,12 @@ async function monitor() {
 
 	console.log(`[${timestamp}] DOWN | failure=${consecutiveFailures}/${FAILURE_THRESHOLD}`);
 
-	if (!isDown && consecutiveFailures >= FAILURE_THRESHOLD) {
-		isDown = true;
+	if (consecutiveFailures >= FAILURE_THRESHOLD) {
+		const event = alertManager.handleDown();
 
-		console.log(`[${timestamp}] CONFIRMED DOWN`);
+		if (event) {
+			console.log("DOWN ALERT:", event);
+		}
 
 		consecutiveFailures = 0;
 	}

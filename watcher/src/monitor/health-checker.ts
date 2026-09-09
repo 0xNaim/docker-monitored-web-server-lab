@@ -7,7 +7,7 @@ interface HealthCheckResult {
 	error?: string;
 }
 
-async function checkHealth(url: string, timeoutMs: number): Promise<HealthCheckResult> {
+export async function checkHealth(url: string, timeoutMs: number): Promise<HealthCheckResult> {
 	const startedAt = Date.now();
 
 	try {
@@ -29,6 +29,3 @@ async function checkHealth(url: string, timeoutMs: number): Promise<HealthCheckR
 		};
 	}
 }
-
-export = checkHealth;
-

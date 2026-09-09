@@ -1,0 +1,12 @@
+services:
+  nginx:
+    build: ./nginx
+    container_name: monitored-nginx
+    ports:
+      - "8080:80"
+
+  watcher:
+    build: ./watcher
+    container_name: nginx-watcher
+    depends_on:
+      - nginx

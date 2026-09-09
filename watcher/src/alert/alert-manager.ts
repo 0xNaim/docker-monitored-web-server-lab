@@ -1,6 +1,7 @@
 import { AlertState } from "./alert-state";
 
 export interface AlertEvent {
+	eventId: string;
 	service: string;
 	status: "DOWN" | "RECOVERED";
 	timestamp: string;
@@ -20,10 +21,11 @@ export class AlertManager {
 		this.state = AlertState.ALERTED;
 
 		return {
+			eventId: crypto.randomUUID(),
 			service: this.serviceName,
 			status: "DOWN",
 			timestamp: new Date().toISOString(),
-			message: `${this.serviceName} is DOWN`
+			message: `${this.serviceName} is down`
 		};
 	}
 
@@ -35,10 +37,11 @@ export class AlertManager {
 		this.state = AlertState.NOT_ALERTED;
 
 		return {
+			eventId: crypto.randomUUID(),
 			service: this.serviceName,
 			status: "RECOVERED",
 			timestamp: new Date().toISOString(),
-			message: `${this.serviceName} has RECOVERED`
+			message: `${this.serviceName} has recovered`
 		};
 	}
 }

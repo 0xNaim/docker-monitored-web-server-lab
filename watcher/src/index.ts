@@ -1,5 +1,8 @@
 import { AlertManager } from "./alert/alert-manager";
+import { isCooldownActive, startCooldown } from "./alert/cooldown";
+import { isEventProcessed, markEventAsProcessed } from "./alert/idempotency";
 import { checkHealth } from "./monitor/health-checker";
+import { connectRedis } from "./redis/redis-client";
 
 const TARGET_URL = "http://nginx/health";
 
@@ -29,7 +32,7 @@ async function monitor() {
 			const event = alertManager.handleRecovery();
 
 			if (event) {
-				console.log("RECOVERY ALERT:", event);
+				console.log("RECOVERY ALERT EVENT: ", event);
 			}
 
 			consecutiveSuccesses = 0;
@@ -47,13 +50,35 @@ async function monitor() {
 		const event = alertManager.handleDown();
 
 		if (event) {
-			console.log("DOWN ALERT:", event);
+			const alreadyProcessed = await isEventProcessed(event.eventId);
+
+			if (alreadyProcessed) {
+				console.log(`Event already processed: ${event.eventId}`);
+				return;
+			}
+
+			const cooldownActive = await isCooldownActive(`${event.service}:${event.status}`);
+
+			if (cooldownActive) {
+				console.log(`Cooldown active: ${event.service}:${event.status}`);
+				return;
+			}
+
+			await markEventAsProcessed(event.eventId);
+			await startCooldown(`${event.service}:${event.status}`);
+
+			console.log("DOWN ALERT EVENT: ", event);
 		}
 
 		consecutiveFailures = 0;
 	}
 }
 
-setInterval(monitor, CHECK_INTERVAL_MS);
+async function start() {
+	await connectRedis();
+	await monitor();
 
-monitor();
+	setInterval(monitor, CHECK_INTERVAL_MS);
+}
+
+start();

@@ -5,8 +5,13 @@ services:
     ports:
       - "8080:80"
 
+  redis:
+    image: redis:alpine
+    container_name: monitoring-redis
+
   watcher:
     build: ./watcher
     container_name: nginx-watcher
     depends_on:
       - nginx
+      - redis

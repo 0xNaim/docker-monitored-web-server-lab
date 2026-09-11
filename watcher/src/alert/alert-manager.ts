@@ -1,4 +1,5 @@
 import { AlertState } from "./alert-state";
+import { AlertStateStore } from "./alert-state-store";
 
 export interface AlertEvent {
 	eventId: string;
@@ -9,16 +10,20 @@ export interface AlertEvent {
 }
 
 export class AlertManager {
-	private state = AlertState.NOT_ALERTED;
+	private readonly stateStore: AlertStateStore;
 
-	constructor(private readonly serviceName: string) {}
+	constructor(private readonly serviceName: string) {
+		this.stateStore = new AlertStateStore(serviceName);
+	}
 
-	handleDown(): AlertEvent | null {
-		if (this.state === AlertState.ALERTED) {
+	async handleDown(): Promise<AlertEvent | null> {
+		const state = await this.stateStore.getState();
+
+		if (state === AlertState.ALERTED) {
 			return null;
 		}
 
-		this.state = AlertState.ALERTED;
+		await this.stateStore.setState(AlertState.ALERTED);
 
 		return {
 			eventId: crypto.randomUUID(),
@@ -29,12 +34,14 @@ export class AlertManager {
 		};
 	}
 
-	handleRecovery(): AlertEvent | null {
-		if (this.state !== AlertState.ALERTED) {
+	async handleRecovery(): Promise<AlertEvent | null> {
+		const state = await this.stateStore.getState();
+
+		if (state !== AlertState.ALERTED) {
 			return null;
 		}
 
-		this.state = AlertState.NOT_ALERTED;
+		await this.stateStore.setState(AlertState.NOT_ALERTED);
 
 		return {
 			eventId: crypto.randomUUID(),

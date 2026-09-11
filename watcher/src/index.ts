@@ -29,7 +29,7 @@ async function monitor() {
 		console.log(`[${timestamp}] UP | status=${result.statusCode} latency=${result.latencyMs}ms`);
 
 		if (consecutiveSuccesses >= RECOVERY_THRESHOLD) {
-			const event = alertManager.handleRecovery();
+			const event = await alertManager.handleRecovery();
 
 			if (event) {
 				console.log("RECOVERY ALERT EVENT: ", event);
@@ -47,7 +47,7 @@ async function monitor() {
 	console.log(`[${timestamp}] DOWN | failure=${consecutiveFailures}/${FAILURE_THRESHOLD}`);
 
 	if (consecutiveFailures >= FAILURE_THRESHOLD) {
-		const event = alertManager.handleDown();
+		const event = await alertManager.handleDown();
 
 		if (event) {
 			const alreadyProcessed = await isEventProcessed(event.eventId);

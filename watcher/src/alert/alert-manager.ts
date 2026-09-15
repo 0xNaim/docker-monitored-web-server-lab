@@ -12,7 +12,7 @@ export interface AlertEvent {
 export class AlertManager {
 	private readonly stateStore: AlertStateStore;
 
-	constructor(private readonly serviceName: string) {
+	constructor(public readonly serviceName: string) {
 		this.stateStore = new AlertStateStore(serviceName);
 	}
 

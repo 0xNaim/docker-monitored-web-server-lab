@@ -11,7 +11,6 @@ services:
 
   watcher:
     build: ./watcher
-    container_name: nginx-watcher
     depends_on:
       - nginx
       - redis

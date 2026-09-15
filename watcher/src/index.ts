@@ -1,10 +1,13 @@
 import { AlertManager } from "./alert/alert-manager";
 import { isCooldownActive, startCooldown } from "./alert/cooldown";
+import { acquireLock, releaseLock } from "./alert/distributed-lock";
 import { isEventProcessed, markEventAsProcessed } from "./alert/idempotency";
 import { checkHealth } from "./monitor/health-checker";
 import { connectRedis } from "./redis/redis-client";
 
 const TARGET_URL = "http://nginx/health";
+
+const SERVICE_NAME = "nginx";
 
 const CHECK_INTERVAL_MS = 5000;
 const TIMEOUT_MS = 3000;
@@ -15,13 +18,14 @@ const RECOVERY_THRESHOLD = 2;
 let consecutiveFailures = 0;
 let consecutiveSuccesses = 0;
 
-const alertManager = new AlertManager("nginx");
+const alertManager = new AlertManager(SERVICE_NAME);
 
 async function monitor() {
 	const result = await checkHealth(TARGET_URL, TIMEOUT_MS);
 
 	const timestamp = new Date().toISOString();
 
+	// Healthy
 	if (result.healthy) {
 		consecutiveFailures = 0;
 		consecutiveSuccesses++;
@@ -41,44 +45,76 @@ async function monitor() {
 		return;
 	}
 
+	// Unhealthy
 	consecutiveSuccesses = 0;
 	consecutiveFailures++;
 
 	console.log(`[${timestamp}] DOWN | failure=${consecutiveFailures}/${FAILURE_THRESHOLD}`);
 
+	// Confirmed down
 	if (consecutiveFailures >= FAILURE_THRESHOLD) {
-		const event = await alertManager.handleDown();
+		const lockKey = `${SERVICE_NAME}:DOWN`;
+		const lock = await acquireLock(lockKey);
 
-		if (event) {
-			const alreadyProcessed = await isEventProcessed(event.eventId);
+		if (!lock) {
+			console.log("Another watcher is handling this alert");
 
-			if (alreadyProcessed) {
-				console.log(`Event already processed: ${event.eventId}`);
-				return;
-			}
-
-			const cooldownActive = await isCooldownActive(`${event.service}:${event.status}`);
-
-			if (cooldownActive) {
-				console.log(`Cooldown active: ${event.service}:${event.status}`);
-				return;
-			}
-
-			await markEventAsProcessed(event.eventId);
-			await startCooldown(`${event.service}:${event.status}`);
-
-			console.log("DOWN ALERT EVENT: ", event);
+			consecutiveFailures = 0;
+			return;
 		}
 
-		consecutiveFailures = 0;
+		try {
+			const event = await alertManager.handleDown();
+
+			if (event) {
+				console.log("ALERT EVENT: ", event);
+
+				const alreadyProcessed = await isEventProcessed(event.eventId);
+
+				if (alreadyProcessed) {
+					console.log(`Event already processed: ${event.eventId}`);
+					consecutiveFailures = 0;
+					return;
+				}
+
+				const cooldownActive = await isCooldownActive(`${event.service}:${event.status}`);
+
+				if (cooldownActive) {
+					console.log(`Cooldown active: ${event.service}:${event.status}`);
+					consecutiveFailures = 0;
+					return;
+				}
+
+				await markEventAsProcessed(event.eventId);
+				await startCooldown(`${event.service}:${event.status}`);
+			}
+
+			consecutiveFailures = 0;
+		} catch (error) {
+			console.log("Error handling alert: ", error);
+		} finally {
+			await releaseLock(lock);
+
+			console.log("Alert lock released");
+		}
 	}
 }
 
 async function start() {
-	await connectRedis();
-	await monitor();
+	try {
+		// Connect to Redis and start monitoring
+		await connectRedis();
+		await monitor();
 
-	setInterval(monitor, CHECK_INTERVAL_MS);
+		// Continue monitoring every 5 seconds
+		setInterval(() => {
+			void monitor();
+		}, CHECK_INTERVAL_MS);
+	} catch (error) {
+		console.error("Failed to start watcher:", error);
+
+		process.exit(1);
+	}
 }
 
-start();
+void start();

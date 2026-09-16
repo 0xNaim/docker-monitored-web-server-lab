@@ -3,7 +3,7 @@ import { isCooldownActive, startCooldown } from "./alert/cooldown";
 import { acquireLock, releaseLock } from "./alert/distributed-lock";
 import { isEventProcessed, markEventAsProcessed } from "./alert/idempotency";
 import { checkHealth } from "./monitor/health-checker";
-import { connectRedis } from "./redis/redis-client";
+import { connectRedis, publishAlert } from "./redis/redis-client";
 
 const TARGET_URL = "http://nginx/health";
 
@@ -37,6 +37,8 @@ async function monitor() {
 
 			if (event) {
 				console.log("RECOVERY ALERT EVENT: ", event);
+
+				await publishAlert(event);
 			}
 
 			consecutiveSuccesses = 0;
@@ -87,6 +89,9 @@ async function monitor() {
 
 				await markEventAsProcessed(event.eventId);
 				await startCooldown(`${event.service}:${event.status}`);
+				await publishAlert(event);
+
+        console.log('DOWN ALERT EVENT PUBLISHED: ', event);
 			}
 
 			consecutiveFailures = 0;

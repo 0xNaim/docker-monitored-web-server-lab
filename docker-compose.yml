@@ -14,3 +14,8 @@ services:
     depends_on:
       - nginx
       - redis
+
+  mailer:
+    build: ./mailer
+    depends_on:
+      - redis

@@ -10,9 +10,6 @@ redis.on("error", (error) => {
 
 export async function connectRedis() {
 	await redis.connect();
-	console.log("Redis connected");
-}
 
-export async function publishAlert(event: unknown): Promise<void> {
-	await redis.lPush("alert:queue", JSON.stringify(event));
+	console.log("Mailer connected to Redis");
 }

@@ -19,3 +19,5 @@ services:
     build: ./mailer
     depends_on:
       - redis
+    env_file:
+      - ./mailer/.env

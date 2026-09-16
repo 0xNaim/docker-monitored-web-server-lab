@@ -1,6 +1,11 @@
+import { sendAlertEmail } from "./email/email-sender";
 import { connectRedis, redis } from "./queue";
+import { withRetry } from "./retry/retry";
 
 const QUEUE_NAME = "alert:queue";
+
+const MAX_EMAIL_ATTEMPTS = 4;
+const BASE_RETRY_DELAY_MS = 1000;
 
 interface AlertEvent {
 	eventId: string;
@@ -11,13 +16,14 @@ interface AlertEvent {
 }
 
 async function processAlert(event: AlertEvent): Promise<void> {
-	console.log("=================================");
-	console.log("Processing alert");
-	console.log("Event ID: ", event.eventId);
-	console.log("Service: ", event.service);
-	console.log("Status: ", event.status);
-	console.log("Message: ", event.message);
-	console.log("=================================");
+	console.log(`[Mailer] Processing event: ${event.eventId}`);
+
+	await withRetry(() => sendAlertEmail(event), {
+		maxAttempts: MAX_EMAIL_ATTEMPTS,
+		baseDelayMs: BASE_RETRY_DELAY_MS
+	});
+
+	console.log(`[Mailer] Email sent: ${event.eventId}`);
 }
 
 async function start(): Promise<void> {
@@ -34,7 +40,11 @@ async function start(): Promise<void> {
 			}
 
 			const event = JSON.parse(result.element) as AlertEvent;
-			await processAlert(event);
+			try {
+				await processAlert(event);
+			} catch (error) {
+				console.error(`[Mailer] Failed to send alert ${event.eventId}: `, error);
+			}
 		}
 	} catch (error) {
 		console.error("Mailer failed: ", error);

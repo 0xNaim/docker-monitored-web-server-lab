@@ -8,11 +8,15 @@ redis.on("error", (error) => {
 	console.error("Redis error: ", error);
 });
 
-export async function connectRedis() {
+export async function connectRedis(): Promise<void> {
 	await redis.connect();
 	console.log("Redis connected");
 }
 
 export async function publishAlert(event: unknown): Promise<void> {
-	await redis.lPush("alert:queue", JSON.stringify(event));
+	const payload = JSON.stringify(event);
+
+	const length = await redis.lPush("alert:queue", payload);
+
+	console.log(`[Redis] Alert published. Queue length: ${length}`);
 }

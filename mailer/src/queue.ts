@@ -5,11 +5,22 @@ export const redis = createClient({
 });
 
 redis.on("error", (error) => {
-	console.error("Redis error: ", error);
+	console.error("[Redis] Error:", error);
 });
 
-export async function connectRedis() {
+export async function connectRedis(): Promise<void> {
 	await redis.connect();
 
-	console.log("Mailer connected to Redis");
+	console.log("[Redis] Mailer connected");
+}
+
+export async function claimAlert(
+	queueName: string,
+	processingQueueName: string
+): Promise<string | null> {
+	return redis.rPopLPush(queueName, processingQueueName);
+}
+
+export async function acknowledgeAlert(processingQueueName: string, event: string): Promise<void> {
+	await redis.lRem(processingQueueName, 1, event);
 }

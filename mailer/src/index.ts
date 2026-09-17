@@ -1,8 +1,10 @@
+import { acknowledgeAlert, claimAlert, connectRedis } from "./queue";
+import { redis } from "./queue";
 import { sendAlertEmail } from "./email/email-sender";
-import { connectRedis, redis } from "./queue";
 import { withRetry } from "./retry/retry";
 
 const QUEUE_NAME = "alert:queue";
+const PROCESSING_QUEUE_NAME = "alert:processing";
 
 const MAX_EMAIL_ATTEMPTS = 4;
 const BASE_RETRY_DELAY_MS = 1000;
@@ -30,24 +32,45 @@ async function start(): Promise<void> {
 	try {
 		await connectRedis();
 
-		console.log("Mailer started");
+		console.log("[Mailer] Started");
 
 		while (true) {
-			const result = await redis.blPop(QUEUE_NAME, 0); // Wait for an alert event
+			const rawEvent = await claimAlert(QUEUE_NAME, PROCESSING_QUEUE_NAME);
 
-			if (!result) {
+			if (!rawEvent) {
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+
 				continue;
 			}
 
-			const event = JSON.parse(result.element) as AlertEvent;
+			let event: AlertEvent;
+
+			try {
+				event = JSON.parse(rawEvent) as AlertEvent;
+			} catch (error) {
+				console.error("[Mailer] Invalid event:", error);
+
+				await acknowledgeAlert(PROCESSING_QUEUE_NAME, rawEvent);
+
+				continue;
+			}
+
 			try {
 				await processAlert(event);
+
+				await acknowledgeAlert(PROCESSING_QUEUE_NAME, rawEvent);
+
+				console.log(`[Mailer] ACK: ${event.eventId}`);
 			} catch (error) {
-				console.error(`[Mailer] Failed to send alert ${event.eventId}: `, error);
+				console.error(`[Mailer] Failed: ${event.eventId}`, error);
+
+				console.log(`[Mailer] Event remains in processing queue`);
 			}
 		}
 	} catch (error) {
-		console.error("Mailer failed: ", error);
+		console.error("[Mailer] Fatal error:", error);
+
+		await redis.quit();
 
 		process.exit(1);
 	}

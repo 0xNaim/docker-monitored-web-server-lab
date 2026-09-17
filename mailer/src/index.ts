@@ -7,6 +7,7 @@ import {
 	redis,
 	requeueAlert
 } from "./queue";
+import { startRecoveryWorker } from "./recovery/recovery-worker";
 import { withRetry } from "./retry/retry";
 
 const QUEUE_NAME = "alert:queue";
@@ -39,6 +40,7 @@ async function processAlert(event: AlertEvent): Promise<void> {
 async function start(): Promise<void> {
 	try {
 		await connectRedis();
+		startRecoveryWorker();
 
 		console.log("[Mailer] Started");
 

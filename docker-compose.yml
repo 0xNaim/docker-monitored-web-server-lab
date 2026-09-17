@@ -21,3 +21,9 @@ services:
       - redis
     env_file:
       - ./mailer/.env
+
+  recovery-worker:
+    build: ./mailer
+    command: npm run recovery
+    depends_on:
+      - redis

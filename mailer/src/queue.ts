@@ -1,5 +1,10 @@
 import { createClient } from "redis";
 
+export const ALERT_QUEUE = "alert:queue";
+export const PROCESSING_QUEUE = "alert:processing";
+export const PROCESSING_METADATA = "alert:processing:metadata";
+export const DLQ_QUEUE = "alert:dlq";
+
 export const redis = createClient({
 	url: "redis://redis:6379"
 });
@@ -18,11 +23,25 @@ export async function claimAlert(
 	queueName: string,
 	processingQueueName: string
 ): Promise<string | null> {
-	return redis.rPopLPush(queueName, processingQueueName);
+	const event = await redis.rPopLPush(queueName, processingQueueName);
+
+	if (!event) {
+		return null;
+	}
+
+	const parsed = JSON.parse(event) as { eventId: string };
+
+	await redis.hSet(PROCESSING_METADATA, parsed.eventId, Date.now().toString());
+
+	return event;
 }
 
 export async function acknowledgeAlert(processingQueueName: string, event: string): Promise<void> {
 	await redis.lRem(processingQueueName, 1, event);
+
+	const parsed = JSON.parse(event) as { eventId: string };
+
+	await redis.hDel(PROCESSING_METADATA, parsed.eventId);
 }
 
 export async function requeueAlert(

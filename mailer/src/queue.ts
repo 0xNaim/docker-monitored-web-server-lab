@@ -24,3 +24,25 @@ export async function claimAlert(
 export async function acknowledgeAlert(processingQueueName: string, event: string): Promise<void> {
 	await redis.lRem(processingQueueName, 1, event);
 }
+
+export async function requeueAlert(
+	processingQueueName: string,
+	queueName: string,
+	processingEvent: string,
+	retryEvent: string
+): Promise<void> {
+	await redis.lRem(processingQueueName, 1, processingEvent);
+
+	await redis.lPush(queueName, retryEvent);
+}
+
+export async function moveToDeadLetterQueue(
+	processingQueueName: string,
+	dlqName: string,
+	processingEvent: string,
+	failedEvent: string
+): Promise<void> {
+	await redis.lRem(processingQueueName, 1, processingEvent);
+
+	await redis.lPush(dlqName, failedEvent);
+}

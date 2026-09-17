@@ -7,6 +7,7 @@ export interface AlertEvent {
 	status: "DOWN" | "RECOVERED";
 	timestamp: string;
 	message: string;
+	retryCount: number;
 }
 
 export class AlertManager {
@@ -30,7 +31,8 @@ export class AlertManager {
 			service: this.serviceName,
 			status: "DOWN",
 			timestamp: new Date().toISOString(),
-			message: `${this.serviceName} is down`
+			message: `${this.serviceName} is down`,
+			retryCount: 0
 		};
 	}
 
@@ -48,7 +50,8 @@ export class AlertManager {
 			service: this.serviceName,
 			status: "RECOVERED",
 			timestamp: new Date().toISOString(),
-			message: `${this.serviceName} has recovered`
+			message: `${this.serviceName} has recovered`,
+			retryCount: 0
 		};
 	}
 }

@@ -1,11 +1,18 @@
-import { acknowledgeAlert, claimAlert, connectRedis } from "./queue";
-import { redis } from "./queue";
 import { sendAlertEmail } from "./email/email-sender";
+import {
+	acknowledgeAlert,
+	claimAlert,
+	connectRedis,
+	moveToDeadLetterQueue,
+	redis,
+	requeueAlert
+} from "./queue";
 import { withRetry } from "./retry/retry";
 
 const QUEUE_NAME = "alert:queue";
 const PROCESSING_QUEUE_NAME = "alert:processing";
-
+const DLQ_NAME = "alert:dlq";
+const MAX_EVENT_RETRIES = 3;
 const MAX_EMAIL_ATTEMPTS = 4;
 const BASE_RETRY_DELAY_MS = 1000;
 
@@ -15,6 +22,7 @@ interface AlertEvent {
 	status: "DOWN" | "RECOVERED";
 	timestamp: string;
 	message: string;
+	retryCount: number;
 }
 
 async function processAlert(event: AlertEvent): Promise<void> {
@@ -64,7 +72,26 @@ async function start(): Promise<void> {
 			} catch (error) {
 				console.error(`[Mailer] Failed: ${event.eventId}`, error);
 
-				console.log(`[Mailer] Event remains in processing queue`);
+				const nextRetryCount = event.retryCount + 1;
+
+				const updatedEvent: AlertEvent = {
+					...event,
+					retryCount: nextRetryCount
+				};
+
+				const updatedPayload = JSON.stringify(updatedEvent);
+
+				if (nextRetryCount >= MAX_EVENT_RETRIES) {
+					await moveToDeadLetterQueue(PROCESSING_QUEUE_NAME, DLQ_NAME, rawEvent, updatedPayload);
+
+					console.error(`[Mailer] Moved to DLQ: ${event.eventId}`);
+
+					continue;
+				}
+
+				await requeueAlert(PROCESSING_QUEUE_NAME, QUEUE_NAME, rawEvent, updatedPayload);
+
+				console.log(`[Mailer] Requeued: ${event.eventId}`, `retry=${nextRetryCount}`);
 			}
 		}
 	} catch (error) {

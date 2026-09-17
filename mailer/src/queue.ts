@@ -46,13 +46,9 @@ export async function acknowledgeAlert(processingQueueName: string, event: strin
 
 export async function requeueAlert(
 	processingQueueName: string,
-	queueName: string,
-	processingEvent: string,
-	retryEvent: string
-): Promise<void> {
-	await redis.lRem(processingQueueName, 1, processingEvent);
-
-	await redis.lPush(queueName, retryEvent);
+	queueName: string
+): Promise<string | null> {
+	return redis.lMove(processingQueueName, queueName, "LEFT", "LEFT");
 }
 
 export async function moveToDeadLetterQueue(
@@ -64,4 +60,16 @@ export async function moveToDeadLetterQueue(
 	await redis.lRem(processingQueueName, 1, processingEvent);
 
 	await redis.lPush(dlqName, failedEvent);
+}
+
+export async function saveJob(eventId: string, event: string): Promise<void> {
+	await redis.hSet(`alert:job:${eventId}`, "payload", event);
+}
+
+export async function getJob(eventId: string): Promise<string | null> {
+	return redis.hGet(`alert:job:${eventId}`, "payload");
+}
+
+export async function deleteJob(eventId: string): Promise<void> {
+	await redis.del(`alert:job:${eventId}`);
 }

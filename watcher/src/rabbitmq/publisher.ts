@@ -3,44 +3,11 @@ import amqp from "amqplib";
 const RABBITMQ_URL = "amqp://rabbitmq:5672";
 const EXCHANGE_NAME = "alert.events";
 
-const CONNECT_MAX_ATTEMPTS = 10;
-const CONNECT_BASE_DELAY_MS = 2000;
-
 let connection: amqp.ChannelModel | null = null;
 let channel: amqp.Channel | null = null;
 
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => {
-		setTimeout(resolve, ms);
-	});
-}
-
-async function connectWithRetry(): Promise<amqp.ChannelModel> {
-	let lastError: unknown;
-
-	for (let attempt = 1; attempt <= CONNECT_MAX_ATTEMPTS; attempt++) {
-		try {
-			return await amqp.connect(RABBITMQ_URL);
-		} catch (error) {
-			lastError = error;
-
-			if (attempt === CONNECT_MAX_ATTEMPTS) {
-				break;
-			}
-
-			const delay = CONNECT_BASE_DELAY_MS * 2 ** (attempt - 1);
-
-			console.error(`[RabbitMQ] Connect attempt ${attempt} failed. Retrying in ${delay} ms...`);
-
-			await sleep(delay);
-		}
-	}
-
-	throw lastError;
-}
-
 export async function connectRabbitMQ(): Promise<void> {
-	connection = await connectWithRetry();
+	connection = await amqp.connect(RABBITMQ_URL);
 
 	channel = await connection.createChannel();
 

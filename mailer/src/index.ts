@@ -1,5 +1,5 @@
 import { sendAlertEmail } from "./email/email-sender";
-import { startConsumer } from "./rabbitmq/consumer";
+import { shutdownConsumer, startConsumer } from "./rabbitmq/consumer";
 import { withRetry } from "./retry/retry";
 
 const MAX_EMAIL_ATTEMPTS = 4;
@@ -40,5 +40,37 @@ async function start(): Promise<void> {
 		process.exit(1);
 	}
 }
+
+let isShuttingDown = false;
+
+async function shutdown(signal: string): Promise<void> {
+	if (isShuttingDown) {
+		console.log(`[Mailer] Already shutting down, ignoring ${signal}`);
+		return;
+	}
+
+	isShuttingDown = true;
+
+	console.log(`[Mailer] ${signal} received`);
+
+	try {
+		await shutdownConsumer();
+
+		console.log("[Mailer] Shutdown completed");
+		process.exit(0);
+	} catch (error) {
+		console.error("[Mailer] Shutdown failed:", error);
+
+		process.exit(1);
+	}
+}
+
+process.on("SIGTERM", () => {
+	void shutdown("SIGTERM");
+});
+
+process.on("SIGINT", () => {
+	void shutdown("SIGINT");
+});
 
 void start();

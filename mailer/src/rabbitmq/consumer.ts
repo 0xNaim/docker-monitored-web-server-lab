@@ -27,55 +27,20 @@ const MAX_RETRIES = 3;
 let connection: amqp.ChannelModel | null = null;
 let channel: amqp.Channel | null = null;
 
+let consumerTag: string | null = null;
+let shuttingDown = false;
+
 export async function startConsumer(handler: (event: unknown) => Promise<void>): Promise<void> {
 	await connectIdempotencyStore();
+	await connectRabbitMQ();
+	await setupTopology();
 
-	connection = await amqp.connect(RABBITMQ_URL);
-
-	channel = await connection.createChannel();
-
-	await channel.assertExchange(EXCHANGE_NAME, "direct", {
-		durable: true
-	});
-
-	await channel.assertExchange(RETRY_EXCHANGE, "direct", {
-		durable: true
-	});
-
-	await channel.assertExchange(DLX_EXCHANGE, "direct", {
-		durable: true
-	});
-
-	await channel.assertQueue(QUEUE_NAME, {
-		durable: true
-	});
-
-	await channel.bindQueue(QUEUE_NAME, EXCHANGE_NAME, ROUTING_KEY);
-
-	// Retry queue holds messages before sending them back.
-	await channel.assertQueue(RETRY_QUEUE, {
-		durable: true,
-		arguments: {
-			"x-message-ttl": RETRY_DELAY_MS,
-			"x-dead-letter-exchange": EXCHANGE_NAME,
-			"x-dead-letter-routing-key": ROUTING_KEY
-		}
-	});
-
-	await channel.bindQueue(RETRY_QUEUE, RETRY_EXCHANGE, RETRY_ROUTING_KEY);
-
-	await channel.assertQueue(DLQ_NAME, {
-		durable: true
-	});
-
-	await channel.bindQueue(DLQ_NAME, DLX_EXCHANGE, DLQ_ROUTING_KEY);
-
-	await channel.prefetch(1);
+	await channel!.prefetch(1);
 
 	console.log("[RabbitMQ] Consumer connected");
 
-	await channel.consume(QUEUE_NAME, async (message) => {
-		if (!message) {
+	const result = await channel!.consume(QUEUE_NAME, async (message) => {
+		if (!message || shuttingDown) {
 			return;
 		}
 
@@ -137,6 +102,72 @@ export async function startConsumer(handler: (event: unknown) => Promise<void>):
 			}
 		}
 	});
+
+	consumerTag = result.consumerTag;
+}
+
+async function connectRabbitMQ(): Promise<void> {
+	connection = await amqp.connect(RABBITMQ_URL);
+
+	connection.on("error", (error) => {
+		console.error("[RabbitMQ] Connection error:", error);
+	});
+
+	connection.on("close", () => {
+		console.error("[RabbitMQ] Connection closed");
+	});
+
+	channel = await connection.createChannel();
+
+	channel.on("error", (error) => {
+		console.error("[RabbitMQ] Channel error:", error);
+	});
+
+	channel.on("close", () => {
+		console.error("[RabbitMQ] Channel closed");
+	});
+}
+
+async function setupTopology(): Promise<void> {
+	if (!channel) {
+		throw new Error("RabbitMQ channel is not initialized");
+	}
+
+	await channel.assertExchange(EXCHANGE_NAME, "direct", {
+		durable: true
+	});
+
+	await channel.assertExchange(RETRY_EXCHANGE, "direct", {
+		durable: true
+	});
+
+	await channel.assertExchange(DLX_EXCHANGE, "direct", {
+		durable: true
+	});
+
+	await channel.assertQueue(QUEUE_NAME, {
+		durable: true
+	});
+
+	await channel.bindQueue(QUEUE_NAME, EXCHANGE_NAME, ROUTING_KEY);
+
+	await channel.assertQueue(RETRY_QUEUE, {
+		durable: true,
+
+		arguments: {
+			"x-message-ttl": RETRY_DELAY_MS,
+			"x-dead-letter-exchange": EXCHANGE_NAME,
+			"x-dead-letter-routing-key": ROUTING_KEY
+		}
+	});
+
+	await channel.bindQueue(RETRY_QUEUE, RETRY_EXCHANGE, RETRY_ROUTING_KEY);
+
+	await channel.assertQueue(DLQ_NAME, {
+		durable: true
+	});
+
+	await channel.bindQueue(DLQ_NAME, DLX_EXCHANGE, DLQ_ROUTING_KEY);
 }
 
 async function scheduleRetry(message: amqp.ConsumeMessage): Promise<void> {
@@ -147,7 +178,7 @@ async function scheduleRetry(message: amqp.ConsumeMessage): Promise<void> {
 	const currentRetryCount = Number(message.properties.headers?.["x-retry-count"] ?? 0);
 
 	if (currentRetryCount >= MAX_RETRIES) {
-		console.error(`[RabbitMQ] Max retries reached. Sending message to DLQ.`);
+		console.error("[RabbitMQ] Max retries reached. Sending message to DLQ.");
 
 		channel.publish(DLX_EXCHANGE, DLQ_ROUTING_KEY, message.content, {
 			persistent: true,
@@ -177,4 +208,42 @@ async function scheduleRetry(message: amqp.ConsumeMessage): Promise<void> {
 	channel.ack(message);
 
 	console.log(`[RabbitMQ] Message scheduled for retry ${nextRetryCount}/${MAX_RETRIES}`);
+}
+
+export async function shutdownConsumer(): Promise<void> {
+	if (shuttingDown) {
+		return;
+	}
+
+	shuttingDown = true;
+
+	console.log("[RabbitMQ] Graceful shutdown started");
+
+	try {
+		if (channel && consumerTag) {
+			await channel.cancel(consumerTag);
+
+			console.log("[RabbitMQ] Consumer stopped");
+		}
+
+		if (channel) {
+			await channel.close();
+
+			console.log("[RabbitMQ] Channel closed");
+		}
+
+		if (connection) {
+			await connection.close();
+
+			console.log("[RabbitMQ] Connection closed");
+		}
+	} catch (error) {
+		console.error("[RabbitMQ] Shutdown error:", error);
+	} finally {
+		channel = null;
+		connection = null;
+		consumerTag = null;
+
+		console.log("[RabbitMQ] Graceful shutdown completed");
+	}
 }

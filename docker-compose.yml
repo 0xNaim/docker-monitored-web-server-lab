@@ -9,21 +9,35 @@ services:
     image: redis:alpine
     container_name: monitoring-redis
 
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: monitoring-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   watcher:
     build: ./watcher
     depends_on:
-      - nginx
-      - redis
+      nginx:
+        condition: service_started
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
 
   mailer:
     build: ./mailer
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     env_file:
       - ./mailer/.env
-
-  recovery-worker:
-    build: ./mailer
-    command: npm run recovery
-    depends_on:
-      - redis

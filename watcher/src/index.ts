@@ -3,7 +3,8 @@ import { isCooldownActive, startCooldown } from "./alert/cooldown";
 import { acquireLock, releaseLock } from "./alert/distributed-lock";
 import { isEventProcessed, markEventAsProcessed } from "./alert/idempotency";
 import { checkHealth } from "./monitor/health-checker";
-import { connectRedis, publishAlert } from "./redis/redis-client";
+import { connectRabbitMQ, publishAlert } from "./rabbitmq/publisher";
+import { connectRedis } from "./redis/redis-client";
 
 const TARGET_URL = "http://nginx/health";
 
@@ -109,6 +110,7 @@ async function start() {
 	try {
 		// Connect to Redis and start monitoring
 		await connectRedis();
+    await connectRabbitMQ()
 		await monitor();
 
 		// Continue monitoring every 5 seconds
@@ -116,7 +118,7 @@ async function start() {
 			void monitor();
 		}, CHECK_INTERVAL_MS);
 	} catch (error) {
-		console.error("Failed to start watcher:", error);
+		console.error("[Watcher] Failed to start watcher:", error);
 
 		process.exit(1);
 	}

@@ -1,5 +1,6 @@
 import { sendAlertEmail } from "./email/email-sender";
 import { startHealthServer } from "./health/health-server";
+import { incrementEmailsFailed, incrementEmailsSent } from "./metrics/metrics";
 import { shutdownConsumer, startConsumer } from "./rabbitmq/consumer";
 import { withRetry } from "./retry/retry";
 
@@ -18,12 +19,20 @@ interface AlertEvent {
 async function processAlert(event: AlertEvent): Promise<void> {
 	console.log(`[Mailer] Processing ${event.eventId}`);
 
-	await withRetry(() => sendAlertEmail(event), {
-		maxAttempts: MAX_EMAIL_ATTEMPTS,
-		baseDelayMs: BASE_RETRY_DELAY_MS
-	});
+	try {
+		await withRetry(() => sendAlertEmail(event), {
+			maxAttempts: MAX_EMAIL_ATTEMPTS,
+			baseDelayMs: BASE_RETRY_DELAY_MS
+		});
 
-	console.log(`[Mailer] Email sent ${event.eventId}`);
+		incrementEmailsSent();
+
+		console.log(`[Mailer] Email sent ${event.eventId}`);
+	} catch (error) {
+		incrementEmailsFailed();
+
+		throw error;
+	}
 }
 
 async function start(): Promise<void> {

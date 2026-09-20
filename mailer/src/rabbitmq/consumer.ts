@@ -8,6 +8,12 @@ import {
 	releaseEvent
 } from "../idempotency/idempotency-store";
 import { error, info, warn } from "../logger/logger";
+import {
+	incrementAlertsProcessed,
+	incrementAlertsReceived,
+	incrementAlertsRetried,
+	recordProcessingDuration
+} from "../metrics/metrics";
 
 const RABBITMQ_URL = "amqp://rabbitmq:5672";
 const EXCHANGE_NAME = "alert.events";
@@ -117,6 +123,9 @@ async function processMessage(
 	message: amqp.ConsumeMessage,
 	handler: (event: unknown) => Promise<void>
 ): Promise<void> {
+	const startedAt = Date.now();
+	incrementAlertsReceived();
+
 	let eventId: string | undefined;
 
 	try {
@@ -159,6 +168,9 @@ async function processMessage(
 		await handler(event);
 
 		await markEventProcessed(eventId);
+
+		incrementAlertsProcessed();
+		recordProcessingDuration(Date.now() - startedAt);
 
 		channel?.ack(message);
 
@@ -280,6 +292,8 @@ async function scheduleRetry(message: amqp.ConsumeMessage): Promise<void> {
 		}
 	});
 
+	incrementAlertsRetried();
+
 	// Original message is safely copied into the retry queue
 	channel.ack(message);
 
@@ -316,7 +330,10 @@ async function reconnect(handler: (event: unknown) => Promise<void>): Promise<vo
 
 			await connectAndStartConsumer(handler);
 
+			reconnecting = false;
+
 			info("rabbitmq_reconnected");
+
 			setRabbitMQHealth(true);
 
 			return;
@@ -329,6 +346,8 @@ async function reconnect(handler: (event: unknown) => Promise<void>): Promise<vo
 			attempt++;
 		}
 	}
+
+	reconnecting = false;
 }
 
 // Graceful shutdown

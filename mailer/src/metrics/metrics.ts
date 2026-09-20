@@ -1,3 +1,13 @@
+import {
+	processingDuration,
+	alertsFailed as prometheusAlertsFailed,
+	alertsProcessed as prometheusAlertsProcessed,
+	alertsReceived as prometheusAlertsReceived,
+	alertsRetried as prometheusAlertsRetried,
+	emailsFailed as prometheusEmailsFailed,
+	emailsSent as prometheusEmailsSent
+} from "./prometheus";
+
 interface Metrics {
 	alertsReceived: number;
 	alertsProcessed: number;
@@ -22,31 +32,46 @@ const metrics: Metrics = {
 
 export function incrementAlertsReceived(): void {
 	metrics.alertsReceived++;
+
+	prometheusAlertsReceived.inc();
 }
 
 export function incrementAlertsProcessed(): void {
 	metrics.alertsProcessed++;
+
+	prometheusAlertsProcessed.inc();
 }
 
 export function incrementAlertsFailed(): void {
 	metrics.alertsFailed++;
+
+	prometheusAlertsFailed.inc();
 }
 
 export function incrementAlertsRetried(): void {
 	metrics.alertsRetried++;
+
+	prometheusAlertsRetried.inc();
 }
 
 export function incrementEmailsSent(): void {
 	metrics.emailsSent++;
+
+	prometheusEmailsSent.inc();
 }
 
 export function incrementEmailsFailed(): void {
 	metrics.emailsFailed++;
+
+	prometheusEmailsFailed.inc();
 }
 
 export function recordProcessingDuration(durationMs: number): void {
 	metrics.processingDurationMs += durationMs;
+
 	metrics.processingCount++;
+
+	processingDuration.observe(durationMs / 1000);
 }
 
 export function getMetrics(): Metrics & {

@@ -1,5 +1,5 @@
 import http from "node:http";
-import { getMetrics } from "../metrics/metrics";
+import { registry } from "../metrics/prometheus";
 
 const PORT = 3000;
 
@@ -10,7 +10,7 @@ export function setRabbitMQHealth(healthy: boolean): void {
 }
 
 export function startHealthServer(): void {
-	const server = http.createServer((req, res) => {
+	const server = http.createServer(async (req, res) => {
 		if (req.method !== "GET") {
 			res.statusCode = 404;
 			res.end("Not Found");
@@ -36,13 +36,13 @@ export function startHealthServer(): void {
 		}
 
 		if (req.url === "/metrics") {
-			const metrics = getMetrics();
+			const metrics = await registry.metrics();
 
 			res.statusCode = 200;
 
-			res.setHeader("Content-Type", "application/json");
+			res.setHeader("Content-Type", registry.contentType);
 
-			res.end(JSON.stringify(metrics));
+			res.end(metrics);
 
 			return;
 		}

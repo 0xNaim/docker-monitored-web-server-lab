@@ -1,0 +1,33 @@
+groups:
+  - name: mailer-alerts
+    rules:
+      - alert: MailerHighFailureRate
+        expr: rate(mailer_alerts_failed_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mailer failure rate is high"
+          description: "Mailer is experiencing a high message failure rate."
+
+      - alert: MailerHighRetryRate
+        expr: rate(mailer_alerts_retried_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mailer retry rate is high"
+          description: "Mailer is retrying messages at a high rate."
+
+      - alert: MailerHighProcessingLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            rate(mailer_processing_duration_seconds_bucket[5m])
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mailer processing latency is high"
+          description: "Mailer P95 processing latency is above 2 seconds."

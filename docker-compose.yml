@@ -12,12 +12,11 @@ services:
   rabbitmq:
     image: rabbitmq:4-management
     container_name: monitoring-rabbitmq
+    restart: unless-stopped
 
     ports:
       - "5672:5672"
       - "15672:15672"
-
-    restart: unless-stopped
 
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
@@ -29,6 +28,7 @@ services:
   watcher:
     build: ./watcher
     restart: unless-stopped
+    
     depends_on:
       nginx:
         condition: service_started
@@ -40,6 +40,10 @@ services:
   mailer:
     build: ./mailer
     restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
     depends_on:
       redis:
         condition: service_started

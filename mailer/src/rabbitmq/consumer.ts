@@ -1,4 +1,5 @@
 import amqp from "amqplib";
+import { setRabbitMQHealth } from "../health/health-server";
 import {
 	claimEvent,
 	connectIdempotencyStore,
@@ -6,6 +7,7 @@ import {
 	markEventProcessed,
 	releaseEvent
 } from "../idempotency/idempotency-store";
+import { error, info, warn } from "../logger/logger";
 
 const RABBITMQ_URL = "amqp://rabbitmq:5672";
 const EXCHANGE_NAME = "alert.events";
@@ -59,13 +61,16 @@ async function connectAndStartConsumer(handler: (event: unknown) => Promise<void
 
 	connection = await amqp.connect(RABBITMQ_URL);
 
-	connection.on("error", (error) => {
-		console.error("[RabbitMQ] Connection error:", error);
+	connection.on("error", (connectionError) => {
+		error("rabbitmq_connection_error", {
+			error: connectionError instanceof Error ? connectionError.message : String(connectionError)
+		});
 	});
 
 	// Reconnect when the connection closes unexpectedly.
 	connection.on("close", () => {
-		console.error("[RabbitMQ] Connection closed");
+		error("rabbitmq_connection_closed");
+		setRabbitMQHealth(false);
 
 		connection = null;
 		channel = null;
@@ -78,12 +83,14 @@ async function connectAndStartConsumer(handler: (event: unknown) => Promise<void
 
 	channel = await connection.createChannel();
 
-	channel.on("error", (error) => {
-		console.error("[RabbitMQ] Channel error:", error);
+	channel.on("error", (channelError) => {
+		error("rabbitmq_channel_error", {
+			error: channelError instanceof Error ? channelError.message : String(channelError)
+		});
 	});
 
 	channel.on("close", () => {
-		console.log("[RabbitMQ] Channel closed");
+		warn("rabbitmq_channel_closed");
 	});
 
 	await setupTopology();
@@ -101,7 +108,8 @@ async function connectAndStartConsumer(handler: (event: unknown) => Promise<void
 
 	consumerTag = result.consumerTag;
 
-	console.log("[RabbitMQ] Consumer connected");
+	info("rabbitmq_consumer_connected");
+	setRabbitMQHealth(true);
 }
 
 // Process a single RabbitMQ message
@@ -117,7 +125,7 @@ async function processMessage(
 		eventId = event.eventId;
 
 		if (!eventId) {
-			console.error("[RabbitMQ] Message has no eventId");
+			warn("rabbitmq_message_missing_event_id");
 
 			channel?.ack(message);
 
@@ -127,7 +135,9 @@ async function processMessage(
 		const status = await getEventStatus(eventId);
 
 		if (status === "PROCESSED") {
-			console.log(`[RabbitMQ] Duplicate event ignored: ${eventId}`);
+			info("rabbitmq_duplicate_event_ignored", {
+				eventId
+			});
 
 			channel?.ack(message);
 
@@ -137,7 +147,9 @@ async function processMessage(
 		const claimed = await claimEvent(eventId);
 
 		if (!claimed) {
-			console.log(`[RabbitMQ] Event is already being processed: ${eventId}`);
+			warn("rabbitmq_event_already_processing", {
+				eventId
+			});
 
 			await scheduleRetry(message);
 
@@ -150,9 +162,14 @@ async function processMessage(
 
 		channel?.ack(message);
 
-		console.log(`[RabbitMQ] Event processed successfully: ${eventId}`);
-	} catch (error) {
-		console.error("[RabbitMQ] Message processing failed:", error);
+		info("message_processed", {
+			eventId
+		});
+	} catch (processingError) {
+		error("rabbitmq_message_processing_failed", {
+			eventId,
+			error: processingError instanceof Error ? processingError.message : String(processingError)
+		});
 
 		// Release the event so a future retry can claim it.
 		if (eventId) {
@@ -162,7 +179,10 @@ async function processMessage(
 		try {
 			await scheduleRetry(message);
 		} catch (retryError) {
-			console.error("[RabbitMQ] Failed to schedule retry:", retryError);
+			error("rabbitmq_retry_schedule_failed", {
+				eventId,
+				error: retryError instanceof Error ? retryError.message : String(retryError)
+			});
 
 			if (channel) {
 				channel.nack(message, false, true);
@@ -229,7 +249,10 @@ async function scheduleRetry(message: amqp.ConsumeMessage): Promise<void> {
 
 	// Maximum retries reached
 	if (currentRetryCount >= MAX_RETRIES) {
-		console.error("[RabbitMQ] Max retries reached. Sending message to DLQ.");
+		warn("rabbitmq_max_retries_reached", {
+			retryCount: currentRetryCount,
+			maxRetries: MAX_RETRIES
+		});
 
 		channel.publish(DLX_EXCHANGE, DLQ_ROUTING_KEY, message.content, {
 			persistent: true,
@@ -260,7 +283,10 @@ async function scheduleRetry(message: amqp.ConsumeMessage): Promise<void> {
 	// Original message is safely copied into the retry queue
 	channel.ack(message);
 
-	console.log(`[RabbitMQ] Message scheduled for retry ${nextRetryCount}/${MAX_RETRIES}`);
+	info("rabbitmq_message_scheduled_for_retry", {
+		retryCount: nextRetryCount,
+		maxRetries: MAX_RETRIES
+	});
 }
 
 // Reconnect after RabbitMQ connection loss
@@ -277,7 +303,10 @@ async function reconnect(handler: (event: unknown) => Promise<void>): Promise<vo
 		try {
 			const delay = getReconnectDelay(attempt);
 
-			console.log(`[RabbitMQ] Reconnecting in ${delay}ms...`);
+			info("rabbitmq_reconnect_attempt", {
+				attempt,
+				delayMs: delay
+			});
 
 			await sleep(delay);
 
@@ -287,11 +316,15 @@ async function reconnect(handler: (event: unknown) => Promise<void>): Promise<vo
 
 			await connectAndStartConsumer(handler);
 
-			console.log("[RabbitMQ] Reconnected successfully");
+			info("rabbitmq_reconnected");
+			setRabbitMQHealth(true);
 
 			return;
-		} catch (error) {
-			console.error(`[RabbitMQ] Reconnect attempt ${attempt} failed:`, error);
+		} catch (reconnectError) {
+			error("rabbitmq_reconnect_failed", {
+				attempt,
+				error: reconnectError instanceof Error ? reconnectError.message : String(reconnectError)
+			});
 
 			attempt++;
 		}
@@ -306,35 +339,37 @@ export async function shutdownConsumer(): Promise<void> {
 
 	shuttingDown = true;
 
-	console.log("[RabbitMQ] Graceful shutdown started");
+	info("rabbitmq_graceful_shutdown_started");
 
 	try {
 		// Stop receiving new messages
 		if (channel && consumerTag) {
 			await channel.cancel(consumerTag);
 
-			console.log("[RabbitMQ] Consumer stopped");
+			info("rabbitmq_consumer_stopped");
 		}
 
 		if (channel) {
 			await channel.close();
 
-			console.log("[RabbitMQ] Channel closed");
+			info("rabbitmq_channel_closed");
 		}
 
 		if (connection) {
 			await connection.close();
 
-			console.log("[RabbitMQ] Connection closed");
+			info("rabbitmq_connection_closed");
 		}
-	} catch (error) {
-		console.error("[RabbitMQ] Shutdown error:", error);
+	} catch (shutdownError) {
+		error("rabbitmq_shutdown_error", {
+			error: shutdownError instanceof Error ? shutdownError.message : String(shutdownError)
+		});
 	} finally {
 		channel = null;
 		connection = null;
 		consumerTag = null;
 		reconnecting = false;
 
-		console.log("[RabbitMQ] Graceful shutdown completed");
+		info("rabbitmq_graceful_shutdown_completed");
 	}
 }

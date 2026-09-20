@@ -1,4 +1,5 @@
 import { sendAlertEmail } from "./email/email-sender";
+import { startHealthServer } from "./health/health-server";
 import { shutdownConsumer, startConsumer } from "./rabbitmq/consumer";
 import { withRetry } from "./retry/retry";
 
@@ -27,6 +28,8 @@ async function processAlert(event: AlertEvent): Promise<void> {
 
 async function start(): Promise<void> {
 	try {
+		startHealthServer();
+
 		await startConsumer(async (rawEvent) => {
 			const event = rawEvent as AlertEvent;
 

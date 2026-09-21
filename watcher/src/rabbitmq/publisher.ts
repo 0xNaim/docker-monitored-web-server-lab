@@ -1,6 +1,6 @@
 import amqp from "amqplib";
 
-const RABBITMQ_URL = "amqp://rabbitmq:5672";
+const RABBITMQ_URL = process.env.RABBITMQ_URL || "amqp://rabbitmq:5672";
 const EXCHANGE_NAME = "alert.events";
 
 let connection: amqp.ChannelModel | null = null;

@@ -1,9 +1,14 @@
+import fs from "node:fs";
 import nodemailer from "nodemailer";
+
+function readSecret(path: string): string {
+	return fs.readFileSync(path, "utf8").trim();
+}
 
 const SMTP_HOST = process.env.SMTP_HOST;
 const SMTP_PORT = Number(process.env.SMTP_PORT ?? 587);
 const SMTP_USER = process.env.SMTP_USER;
-const SMTP_PASSWORD = process.env.SMTP_PASSWORD;
+const SMTP_PASSWORD = process.env.SMTP_PASSWORD ?? readSecret("/run/secrets/smtp_password");
 const ALERT_EMAIL = process.env.ALERT_EMAIL;
 
 if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD || !ALERT_EMAIL) {
@@ -39,6 +44,6 @@ Time: ${alert.timestamp}
 
 Message:
 ${alert.message}
-		`.trim(),
+		`.trim()
 	});
 }

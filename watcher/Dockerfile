@@ -9,4 +9,6 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 
+USER node
+
 CMD ["npm", "run", "dev"]

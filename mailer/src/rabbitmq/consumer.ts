@@ -15,7 +15,7 @@ import {
 	recordProcessingDuration
 } from "../metrics/metrics";
 
-const RABBITMQ_URL = "amqp://rabbitmq:5672";
+const RABBITMQ_URL = process.env.RABBITMQ_URL || "amqp://rabbitmq:5672";
 const EXCHANGE_NAME = "alert.events";
 const QUEUE_NAME = "alert.queue";
 const ROUTING_KEY = "alert";

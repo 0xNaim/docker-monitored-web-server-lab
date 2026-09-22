@@ -27,6 +27,8 @@ services:
     build: ./watcher
     restart: unless-stopped
     read_only: true
+    cpus: "0.25"
+    mem_limit: 256m
     cap_drop:
       - ALL
     tmpfs:
@@ -43,6 +45,8 @@ services:
     build: ./mailer
     restart: unless-stopped
     read_only: true
+    cpus: "0.5"
+    mem_limit: 512m
     cap_drop:
       - ALL
     tmpfs:
